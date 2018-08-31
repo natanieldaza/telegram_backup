@@ -29,10 +29,12 @@ import java.util.HashMap
 import org.slf4j.LoggerFactory
 import org.slf4j.Logger
 
-class CommandLineController(val options: CommandLineOptions) {
+class CommandLineController(val options: CommandLineOptions)
+{
 	val logger = LoggerFactory.getLogger(CommandLineController::class.java)
 
-	init {
+	init
+	{
 		val storage: ApiStorage
 		val app: TelegramApp
 		val target_dir: String
@@ -46,12 +48,17 @@ class CommandLineController(val options: CommandLineOptions) {
 		logger.info("CommandLineController started. App version {}", Config.APP_APPVER)
 		
 		printHeader()
-		if (options.isSet("version")) {
+		if (options.isSet("version"))
+		{
 			System.exit(0)
-		} else if (options.isSet("help")) {
+		}
+		else if (options.isSet("help"))
+		{
 			show_help()
 			System.exit(0)
-		} else if (options.isSet("license")) {
+		}
+		else if (options.isSet("license"))
+		{
 			show_license()
 			System.exit(0)
 		}
@@ -76,13 +83,19 @@ class CommandLineController(val options: CommandLineOptions) {
 		}
 
 		logger.trace("Checking accounts")
-		phone_number = try { selectAccount(target_dir, options.get("account"))
-		} catch(e: AccountNotFoundException) {
-			show_error("The specified account could not be found.")
-		} catch(e: NoAccountsException) {
-			println("No accounts found. Starting login process...")
-			cmd_login(app, target_dir, options.get("account"))
-		}
+		phone_number = try
+					   {
+						   selectAccount(target_dir, options.get("account"))
+					   }
+					   catch(e: AccountNotFoundException)
+					   {
+						   show_error("The specified account could not be found.")
+					   }
+					   catch(e: NoAccountsException)
+					   {
+						   println("No accounts found. Starting login process...")
+						   cmd_login(app, target_dir, options.get("account"))
+					   }
 		
 		// TODO: Create a new TelegramApp if the user set his/her own TelegramApp credentials
 
@@ -97,7 +110,8 @@ class CommandLineController(val options: CommandLineOptions) {
 		client = Kotlogram.getDefaultClient(app, storage, Kotlogram.PROD_DC4, null)
 		
 		// From now on we have a new catch-all-block that will terminate it's TelegramClient when an exception happens.
-		try {
+		try
+		{
 			logger.info("Initializing UserManager")
 			user_manager = UserManager(client)
 		
@@ -107,7 +121,8 @@ class CommandLineController(val options: CommandLineOptions) {
 				options.cmd_login = true
 			}*/
 			
-			if (phone_number != user_manager.phone) {
+			if (phone_number != user_manager.phone)
+			{
 				logger.error("phone_number: {}, user_manager.phone: {}", phone_number.anonymize(), user_manager.phone.anonymize())
 				show_error("Account / User mismatch")
 			}
@@ -115,17 +130,22 @@ class CommandLineController(val options: CommandLineOptions) {
 			// If we reach this point, we can assume that there is an account and a database can be loaded / created.
 			database = Database(file_base, user_manager)
 			
-			Runtime.getRuntime().addShutdownHook(Thread() {
-				database.close()
-			})
+			Runtime.getRuntime().addShutdownHook(
+					Thread()
+					{
+						database.close()
+					})
 			
 			// Load the settings and stuff.
 			settings = Settings(file_base, database, options)
 			
-			if (options.isSet("stats")) {
+			if (options.isSet("stats"))
+			{
 				cmd_stats(file_base, database)
 				System.exit(0)
-			} else if (options.isSet("settings")) {
+			}
+			else if (options.isSet("settings"))
+			{
 				settings.print()
 				System.exit(0)
 			}

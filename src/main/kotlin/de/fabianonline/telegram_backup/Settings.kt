@@ -8,7 +8,6 @@ class Settings(val file_base: String, val database: Database, val cli_settings: 
 	val logger = LoggerFactory.getLogger(Settings::class.java)
 
 	private val db_settings: Map<String, String>
-
 	val ini_settings: Map<String, List<String>>
 
 	init {
@@ -29,8 +28,9 @@ class Settings(val file_base: String, val database: Database, val cli_settings: 
 	val blacklist_channels = sf.getStringList("blacklist_channels", default=LinkedList<String>())
 	val max_file_age = sf.getInt("max_file_age", default=-1)
 	val max_file_size = sf.getInt("max_file_size", default=-1)
+	val max_download_size = sf.getInt("max_download_size", default=0)
 	val blacklist_extensions = sf.getStringList("blacklist_extensions", default=LinkedList<String>())
-
+	
 	private fun get_setting_list(name: String): List<String>? {
 		return ini_settings[name]
 	}

@@ -31,6 +31,6 @@ class UnsupportedFileManager(json: JsonObject, file_base: String, type: String) 
 	override val downloaded = false
 	override val letter = " "
 	override val description = "Unsupported / non-downloadable Media"
-
+    override val originalname: String = "Nono"
 	override fun download(prog: DownloadProgressInterface?): Boolean = true
 }

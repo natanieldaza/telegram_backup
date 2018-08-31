@@ -42,7 +42,7 @@ class PhotoFileManager(message: JsonObject, file_base: String) : AbstractMediaFi
 	val biggestSize: JsonObject
 	var biggestSizeW = 0
 	var biggestSizeH = 0
-	
+	open override val originalname: String = ""
 	val json = message["media"]["photo"].obj
 	override var isEmpty = json.isA("photoEmpty")
 

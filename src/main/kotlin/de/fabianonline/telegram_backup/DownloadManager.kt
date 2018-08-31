@@ -56,22 +56,26 @@ import java.nio.file.StandardCopyOption
 
 import org.apache.commons.io.FileUtils
 
-enum class MessageSource(val descr: String) {
+enum class MessageSource(val descr: String)
+{
 	NORMAL(""),
 	CHANNEL("channel"),
 	SUPERGROUP("supergroup")
 }
 
-class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInterface, val db: Database, val user_manager: UserManager, val settings: Settings, val file_base: String) {
+class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInterface, val db: Database, val user_manager: UserManager, val settings: Settings, val file_base: String)
+{
 	@Throws(RpcErrorException::class, IOException::class)
-	fun downloadMessages(limit: Int?) {
+	fun downloadMessages(limit: Int?)
+	{
 		logger.info("This is downloadMessages with limit {}", limit)
 		logger.info("Downloading the last dialogs")
 		System.out.println("Downloading most recent dialogs... ")
 		var max_message_id = 0
 		var result: ChatList? = null
 		
-		Utils.obeyFloodWait() {
+		Utils.obeyFloodWait()
+		{
 			result = getChats()
 		}
 		
@@ -79,8 +83,10 @@ class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInte
 		
 		logger.debug("Got {} dialogs, {} supergoups, {} channels", chats.dialogs.size, chats.supergroups.size, chats.channels.size)
 
-		for (d in chats.dialogs) {
-			if (d.getTopMessage() > max_message_id) {
+		for (d in chats.dialogs)
+		{
+			if (d.getTopMessage() > max_message_id)
+			{
 				logger.trace("Updating top message id: {} => {}. Dialog type: {}", max_message_id, d.getTopMessage(), d.getPeer().javaClass)
 				max_message_id = d.getTopMessage()
 			}
@@ -88,19 +94,22 @@ class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInte
 		System.out.println("Top message ID is " + max_message_id)
 		var max_database_id = db.getTopMessageID()
 		System.out.println("Top message ID in database is " + max_database_id)
-		if (limit != null) {
+		if (limit != null)
+		{
 			System.out.println("Limit is set to " + limit)
 			max_database_id = Math.max(max_database_id, max_message_id - limit)
 			System.out.println("New top message id 'in database' is " + max_database_id)
 		}
-		if (max_message_id - max_database_id > 1000000) {
+		if (max_message_id - max_database_id > 1000000)
+		{
 			System.out.println("Would have to load more than 1 million messages which is not supported by telegram. Capping the list.")
 			logger.debug("max_message_id={}, max_database_id={}, difference={}", max_message_id, max_database_id, max_message_id - max_database_id)
 			max_database_id = Math.max(0, max_message_id - 1000000)
 			logger.debug("new max_database_id: {}", max_database_id)
 		}
 
-		if (max_database_id == max_message_id) {
+		if (max_database_id == max_message_id)
+		{
 			System.out.println("No new messages to download.")
 		} else if (max_database_id > max_message_id) {
 			throw RuntimeException("max_database_id is bigger than max_message_id. This shouldn't happen. But the telegram api nonetheless does that sometimes. Just ignore this error, wait a few seconds and then try again.")
@@ -150,12 +159,15 @@ class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInte
 			for (supergroup in chats.supergroups) { if (supergroup.download) downloadMessagesFromChannel(supergroup, limit) }
 		}
 	}
-
-	private fun downloadMessagesFromChannel(channel: Channel, limit: Int?) {
+    
+	private fun downloadMessagesFromChannel(channel: Channel, limit: Int?)
+	{
 		val obj = channel.obj
 		var max_known_id = db.getTopMessageIDForChannel(channel.id)
-		if (obj.getTopMessage() > max_known_id) {
-			if (limit != null) {
+		if (obj.getTopMessage() > max_known_id)
+		{
+			if (limit != null)
+			{
 				max_known_id = Math.max(max_known_id, obj.getTopMessage() - limit)
 			}
 			val ids = makeIdList(max_known_id + 1, obj.getTopMessage())
@@ -237,41 +249,82 @@ class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInte
 		prog.onMediaDownloadStart(message_count)
 		var offset = 0
 		val limit = 1000
-		while (true) {
+		var count = settings.max_download_size
+		var cummulative_download = 1024*1024*1024
+		while (true)
+		{
 			logger.debug("Querying messages with media, limit={}, offset={}", limit, offset)
-			val messages = db.getMessagesWithMedia(limit, offset)
+			val messages = db.getMessagesWithMedia(limit, offset,settings)
 			if (messages.size == 0) break
 			offset += limit
-			logger.debug("Database returned {} messages with media", messages.size)
-			for (pair in messages) {
+			System.out.println("Database returned {} messages with media: " + messages.size)
+			for (pair in messages)
+			{
 				val id = pair.first
 				val json = pair.second
-				try {
+				try
+				{
 				val m = FileManagerFactory.getFileManager(json, file_base, settings=settings)!!
 				logger.trace("message {}, {}, {}, {}, {}",
 					id,
 					m.javaClass.getSimpleName(),
 					if (m.isEmpty) "empty" else "non-empty",
 					if (m.downloaded) "downloaded" else "not downloaded")
-				if (m.isEmpty) {
+				if (m.isEmpty)
+				{
 					prog.onMediaDownloadedEmpty()
-				} else if (m.downloaded) {
+				}
+				else if (m.downloaded)
+				{
 					prog.onMediaAlreadyPresent(m)
-				} else if (settings.max_file_age>0 && (System.currentTimeMillis() / 1000) - json["date"].int > settings.max_file_age * 24 * 60 * 60) {
+				}
+				else if (settings.max_file_age>0 && (System.currentTimeMillis() / 1000) - json["date"].int > settings.max_file_age * 24 * 60 * 60)
+				{
 					prog.onMediaSkipped()
-				} else if (settings.max_file_size>0 && settings.max_file_size*1024*1024 > m.size) {
+				}
+				else if (settings.max_file_size>0 && settings.max_file_size*1024*1024 > m.size)
+				{
+					System.out.println("skipping {} too big : " + settings.max_file_size*1024*1024 +" > " + m.size)
 					prog.onMediaSkipped()
-				} else if (settings.blacklist_extensions.contains(m.extension)) {
+				}
+				else if (settings.max_download_size >0 && count <= 0)
+				{
 					prog.onMediaSkipped()
-				} else {
-					try {
+				}
+				else if (settings.blacklist_extensions.contains(m.extension))
+				{
+					prog.onMediaSkipped()
+				}
+				else if (m.originalname == "animation.gif.mp4")
+				{
+					prog.onMediaSkipped()
+				}
+				else
+				{
+					try
+					{
 						val result = m.download(prog)
-						if (result) {
+						if (result)
+						{
+							cummulative_download -= m.size
+							if(cummulative_download <= 0)
+							{
+								System.out.println("reducing 1 {} too big : " + cummulative_download)
+								
+								cummulative_download += 1024*1024*1024
+								count-=1
+								System.out.println("reducing 2 {} too big : " + cummulative_download)
+								System.out.println("reducing 3 {} too big : " + count)
+							}
 							prog.onMediaDownloaded(m)
-						} else {
+						}
+						else
+						{
 							prog.onMediaFailed()
 						}
-					} catch (e: TimeoutException) {
+					}
+					catch (e: TimeoutException)
+					{
 						// do nothing - skip this file
 						prog.onMediaFailed()
 					}
@@ -291,20 +344,24 @@ class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInte
 		return a
 	}
 	
-	fun getChats(): ChatList {
+	fun getChats(): ChatList
+	{
 		val cl = ChatList()
 		logger.debug("Getting list of chats...")
-		val limit = 100
+		val limit = 1000
 		var offset = 0
-		while (true) {
+		while (true)
+		{
 			var temp: TLAbsDialogs? = null
 			logger.trace("Calling messagesGetDialogs with offset {}", offset)
-			Utils.obeyFloodWait {
+			Utils.obeyFloodWait
+			{
 				temp = client.messagesGetDialogs(offset, 0, TLInputPeerEmpty(), limit)
 			}
 			val dialogs = temp!!
 			val last_message = dialogs.messages.filter{ it is TLMessage || it is TLMessageService }.last()
-			offset = when(last_message) {
+			offset = when(last_message)
+			{
 				is TLMessage -> last_message.date
 				is TLMessageService -> last_message.date
 				else -> throw RuntimeException("Unexpected last_message type ${last_message.javaClass}")
@@ -316,28 +373,36 @@ class DownloadManager(val client: TelegramClient, val prog: DownloadProgressInte
 			cl.dialogs.addAll(dialogs.getDialogs().filter{it.getPeer() !is TLPeerChannel})
 			
 			// Add supergoups and channels
-			for (tl_channel in dialogs.getChats().filter{it is TLChannel}.map{it as TLChannel}) {
+			for (tl_channel in dialogs.getChats().filter{it is TLChannel}.map{it as TLChannel})
+			{
 				val tl_peer_channel = dialogs.getDialogs().find{var p = it.getPeer() ; p is TLPeerChannel && p.getChannelId()==tl_channel.getId()}
 				
 				if (tl_peer_channel == null) continue
 				
 				var download = true
-				if (settings.whitelist_channels.isNotEmpty()) {
+				if (settings.whitelist_channels.isNotEmpty())
+				{
 					download = settings.whitelist_channels.contains(tl_channel.getId().toString())
-				} else if (settings.blacklist_channels.isNotEmpty()) {
+				}
+				else if (settings.blacklist_channels.isNotEmpty())
+				{
 					download = !settings.blacklist_channels.contains(tl_channel.getId().toString())
 				}
 				val channel = Channel(id=tl_channel.getId(), access_hash=tl_channel.getAccessHash(), title=tl_channel.getTitle(), obj=tl_peer_channel, download=download)
-				if (tl_channel.getMegagroup()) {
+				if (tl_channel.getMegagroup())
+				{
 					channel.message_source = MessageSource.SUPERGROUP
 					cl.supergroups.add(channel)
-				} else {
+				}
+				else
+				{
 					channel.message_source = MessageSource.CHANNEL
 					cl.channels.add(channel)
 				}
 			}
 			
-			if (dialogs.dialogs.size < limit) {
+			if (dialogs.dialogs.size < limit)
+			{
 				logger.debug("Got only ${dialogs.dialogs.size} back instead of ${limit}. Stopping the loop.")
 				logger.debug("Got ${cl.dialogs.size} groups, ${cl.channels.size} channels and ${cl.supergroups.size} supergroups.")
 				break;

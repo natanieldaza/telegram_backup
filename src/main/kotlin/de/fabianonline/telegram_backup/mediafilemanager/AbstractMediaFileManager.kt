@@ -34,7 +34,7 @@ abstract class AbstractMediaFileManager(private var json: JsonObject, val file_b
 	open var isEmpty = false
 	abstract val size: Int
 	abstract val extension: String
-
+    abstract val originalname : String
 	open val downloaded: Boolean
 		get() = !isEmpty && File(targetPathAndFilename).isFile()
 
@@ -42,10 +42,24 @@ abstract class AbstractMediaFileManager(private var json: JsonObject, val file_b
 		get() = File("${targetPathAndFilename}.downloading").isFile()
 
 	open val targetPath: String
-		get() {
-			val path = file_base + Config.FILE_FILES_BASE + File.separatorChar
-			File(path).mkdirs()
-			return path
+		get()
+		{
+			var to = json["toId"].obj
+			val channel_id = to["channelId"].int
+			if (to.isA("peerChannel"))
+			{
+				val path = file_base + Config.FILE_FILES_BASE + File.separatorChar + channel_id + File.separatorChar +extension+ File.separatorChar
+			    File(path).mkdirs()
+			    return path
+				
+			}
+			else
+			{
+				val path = file_base + Config.FILE_FILES_BASE + File.separatorChar +extension+ File.separatorChar
+			    File(path).mkdirs()
+			    return path
+			}
+			
 		}
 
 	open val targetFilename: String

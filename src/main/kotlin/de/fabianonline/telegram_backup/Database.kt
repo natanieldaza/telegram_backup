@@ -49,25 +49,33 @@ import com.github.salomonbrys.kotson.*
 import de.fabianonline.telegram_backup.mediafilemanager.AbstractMediaFileManager
 import de.fabianonline.telegram_backup.mediafilemanager.FileManagerFactory
 
-class Database constructor(val file_base: String, val user_manager: UserManager) {
-	val conn: Connection
-	val stmt: Statement
+class Database constructor(val file_base: String, val user_manager: UserManager)
+{
+	lateinit var conn: Connection
+	lateinit var stmt: Statement
+	lateinit var databasesMap: HashMap<String, Connection>
 	val logger = LoggerFactory.getLogger(Database::class.java)
 	
-	init {
+	init
+	{
 		println("Opening database...")
-		try {
+		try
+		{
 			Class.forName("org.sqlite.JDBC")
-		} catch (e: ClassNotFoundException) {
+		}
+		catch (e: ClassNotFoundException)
+		{
 			throw RuntimeException("Could not load jdbc-sqlite class.")
 		}
 
 		val path = "jdbc:sqlite:${file_base}${Config.FILE_NAME_DB}"
 
-		try {
-			conn = DriverManager.getConnection(path)!!
-			stmt = conn.createStatement()
-		} catch (e: SQLException) {
+		try
+		{
+			conn = OpenDatabase(path);
+		}
+		catch (e: SQLException)
+		{
 			throw RuntimeException("Could not connect to SQLITE database.")
 		}
 
@@ -77,45 +85,140 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 
 		println("Database is ready.")
 	}
+	fun OpenDatabase(databasePath: String): Connection
+	{
+		var tempconn: Connection
+		println("Opening database..." + databasePath)
+		try
+		{
+			Class.forName("org.sqlite.JDBC")
+		}
+		catch (e: ClassNotFoundException)
+		{
+			throw RuntimeException("Could not load jdbc-sqlite class.")
+		}
 
+
+		try
+		{
+			tempconn = DriverManager.getConnection(databasePath)!!
+			stmt = conn.createStatement()
+			
+		}
+		catch (e: SQLException)
+		{
+			throw RuntimeException("Could not connect to SQLITE database.")
+		}
+		
+		println("Database is ready. " + databasePath)
+		return tempconn
+	}
+	fun createConnections()
+	{
+		val map = HashMap<String, Connection>()
+		try
+		{
+			val rs = executeQuery("SELECT id, source_type FROM messages GROUP BY source_type ORDER BY source_type")
+			while (rs.next())
+			{
+				
+				var path = "jdbc:sqlite:${file_base}"+".sqlite"
+				
+				try
+				{
+					
+					conn = OpenDatabase(path);
+				}
+				catch (e: SQLException)
+				{
+					throw RuntimeException("Could not connect to SQLITE database.")
+				}
+			
+				map.put("count.messages.source_type.${source_type}", rs.getInt(1))
+			}
+			rs.close()
+			return map
+		}
+		catch (e:Exception)
+		{
+			throw RuntimeException(e)
+		}
+		
+		databasesMap =  map
+
+
+	}
 	fun getTopMessageID(): Int = queryInt("SELECT MAX(message_id) FROM messages WHERE source_type IN ('group', 'dialog')")
 	fun getMessageCount(): Int = queryInt("SELECT COUNT(*) FROM messages")
 	fun getChatCount(): Int = queryInt("SELECT COUNT(*) FROM chats")
 	fun getUserCount(): Int = queryInt("SELECT COUNT(*) FROM users")
 
-	fun getMissingIDs(): LinkedList<Int> {
-		try {
+	fun getMissingIDs(): LinkedList<Int>
+	{
+		try
+		{
 			val missing = LinkedList<Int>()
 			val max = getTopMessageID()
 			val rs = executeQuery("SELECT message_id FROM messages WHERE source_type IN ('group', 'dialog') ORDER BY id")
 			rs.next()
 			var id = rs.getInt(1)
-			for (i in 1..max) {
-				if (i == id) {
+			for (i in 1..max)
+			{
+				if (i == id)
+				{
 					rs.next()
-					if (rs.isClosed()) {
+					if (rs.isClosed())
+					{
 						id = Integer.MAX_VALUE
-					} else {
+					}
+					else
+					{
 						id = rs.getInt(1)
 					}
-				} else if (i < id) {
+				}
+				else if (i < id)
+				{
 					missing.add(i)
 				}
 			}
 			rs.close()
 			return missing
-		} catch (e: SQLException) {
+		}
+		catch (e: SQLException)
+		{
 			e.printStackTrace()
 			throw RuntimeException("Could not get list of ids.")
 		}
 	}
 
-	fun getMessagesWithMediaCount() = queryInt("SELECT COUNT(*) FROM messages WHERE has_media=1")
+	fun getMessagesWithMediaCount() = queryInt("SELECT COUNT(*) FROM messages WHERE has_media=1 AND json IS NOT NULL and media_file is not null")
 
-	fun getMessagesWithMedia(limit: Int = 0, offset: Int = 0): LinkedList<Pair<Int, JsonObject>> {
-		try {
+	fun getMessagesWithMedia(limit: Int = 0, offset: Int = 0, settings: Settings): LinkedList<Pair<Int, JsonObject>>
+	{
+		try
+		{
 			val list = LinkedList<Pair<Int, JsonObject>>()
-			var query = "SELECT id, json FROM messages WHERE has_media=1 AND json IS NOT NULL ORDER BY id"
+			var query = "SELECT id, json FROM messages WHERE has_media=1 AND json IS NOT NULL and media_file is not null"
+			var i = 0;
+			for (chan in settings.whitelist_channels)
+			{
+				if(i==0)
+				{
+					query = query + " AND ("
+					i++
+				}
+				else
+				{
+					query = query + " OR "
+				}	
+				query = query + "source_id = " + chan
+			}
+			if(i>0)
+			{
+				query = query + " ) "
+			}
+			query = query + " ORDER BY media_size"
+			System.out.println("Media from: " + query)
 			if (limit > 0) query += " LIMIT ${limit} OFFSET ${offset}"
 			val rs = executeQuery(query)
 			val parser = JsonParser()
@@ -125,7 +228,9 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 			}
 			rs.close()
 			return list
-		} catch (e: Exception) {
+		}
+		catch (e: Exception)
+		{
 			e.printStackTrace()
 			throw RuntimeException("Exception occured. See above.")
 		}
@@ -138,32 +243,42 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 
 	fun getMessageMediaTypesWithCount(): HashMap<String, Int> = getMessageMediaTypesWithCount(GlobalChat())
 	
-	fun getMessageSourceTypeWithCount(): HashMap<String, Int> {
+	fun getMessageSourceTypeWithCount(): HashMap<String, Int>
+	{
 		val map = HashMap<String, Int>()
-		try {
+		try
+		{
 			val rs = executeQuery("SELECT COUNT(id), source_type FROM messages GROUP BY source_type ORDER BY source_type")
-			while (rs.next()) {
+			while (rs.next())
+			{
 				val source_type = rs.getString(2) ?: "null"
 				map.put("count.messages.source_type.${source_type}", rs.getInt(1))
 			}
 			rs.close()
 			return map
-		} catch (e:Exception) {
+		}
+		catch (e:Exception)
+		{
 			throw RuntimeException(e)
 		}
 	}
 
-	fun getMessageApiLayerWithCount(): HashMap<String, Int> {
+	fun getMessageApiLayerWithCount(): HashMap<String, Int>
+	{
 		val map = HashMap<String, Int>()
-		try {
+		try
+		{
 			val rs = executeQuery("SELECT COUNT(id), api_layer FROM messages GROUP BY api_layer ORDER BY api_layer")
-			while (rs.next()) {
+			while (rs.next())
+			{
 				var layer = rs.getInt(2)
 				map.put("count.messages.api_layer.$layer", rs.getInt(1))
 			}
 			rs.close()
 			return map
-		} catch (e: Exception) {
+		}
+		catch (e: Exception)
+		{
 			throw RuntimeException(e)
 		}
 	}
@@ -174,13 +289,15 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 
 	fun getEncoding(): String = queryString("PRAGMA encoding")
 
-	fun getListOfChatsForExport(): LinkedList<Chat> {
+	fun getListOfChatsForExport(): LinkedList<Chat>
+	{
 		val list = LinkedList<Chat>()
 
 		val rs = executeQuery("SELECT chats.id, chats.name, COUNT(messages.id) as c " +
 			"FROM chats, messages WHERE messages.source_type IN('group', 'supergroup', 'channel') AND messages.source_id=chats.id " +
 			"GROUP BY chats.id ORDER BY c DESC")
-		while (rs.next()) {
+		while (rs.next())
+		{
 			list.add(Chat(rs.getInt(1), rs.getString(2), rs.getInt(3)))
 		}
 		rs.close()
@@ -188,32 +305,40 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 	}
 
 
-	fun getListOfDialogsForExport(): LinkedList<Dialog> {
+	fun getListOfDialogsForExport(): LinkedList<Dialog>
+	{
 		val list = LinkedList<Dialog>()
 		val rs = executeQuery(
 			"SELECT users.id, first_name, last_name, username, COUNT(messages.id) as c " +
 				"FROM users, messages WHERE messages.source_type='dialog' AND messages.source_id=users.id " +
 				"GROUP BY users.id ORDER BY c DESC")
-		while (rs.next()) {
+		while (rs.next())
+		{
 			list.add(Dialog(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getInt(5)))
 		}
 		rs.close()
 		return list
 	}
 
-	fun backupDatabase(currentVersion: Int) {
+	fun backupDatabase(currentVersion: Int)
+	{
 		val filename = String.format(Config.FILE_NAME_DB_BACKUP, currentVersion)
 		System.out.println("  Creating a backup of your database as " + filename)
-		try {
+		try
+		{
 			val src = file_base + Config.FILE_NAME_DB
 			val dst = file_base + filename
 			logger.debug("Copying {} to {}", src.anonymize(), dst.anonymize())
 			Files.copy(
 				File(src).toPath(),
 				File(dst).toPath())
-		} catch (e: FileAlreadyExistsException) {
+		}
+		catch (e: FileAlreadyExistsException)
+		{
 			logger.warn("Backup already exists:", e)
-		} catch (e: IOException) {
+		}
+		catch (e: IOException)
+		{
 			e.printStackTrace()
 			throw RuntimeException("Could not create backup.")
 		}
@@ -222,7 +347,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 
 	fun getTopMessageIDForChannel(id: Int): Int = queryInt("SELECT MAX(message_id) FROM messages WHERE source_id=$id AND source_type IN('channel', 'supergroup')")
 
-	fun logRun(start_id: Int, end_id: Int, count: Int) {
+	fun logRun(start_id: Int, end_id: Int, count: Int)
+	{
 		val ps = conn.prepareStatement("INSERT INTO runs " +
 			"(time,        start_id, end_id, count_missing) " +
 			"VALUES " +
@@ -234,16 +360,21 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		ps.close()
 	}
 	
-	fun executeQuery(query: String): ResultSet {
+	fun executeQuery(query: String): ResultSet
+	{
 		logger.trace("Query: {}", query)
-		try {
+		try
+		{
 			return stmt.executeQuery(query)
-		} catch (e: SQLException) {
+		}
+		catch (e: SQLException)
+		{
 			throw RuntimeException("An SQL error happened. Query: ${query} Error message: ${e.message}", e)
 		}
 	}
 
-	fun queryInt(query: String): Int {
+	fun queryInt(query: String): Int
+	{
 		val rs = executeQuery(query)
 		rs.next()
 		val result = rs.getInt(1)
@@ -251,7 +382,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		return result
 	}
 	
-	fun queryString(query: String): String {
+	fun queryString(query: String): String
+	{
 		val rs = executeQuery(query)
 		rs.next()
 		val result = rs.getString(1)
@@ -259,10 +391,12 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		return result
 	}
 	
-	fun queryStringMap(query: String): Map<String, String> {
+	fun queryStringMap(query: String): Map<String, String>
+	{
 		val map = mutableMapOf<String, String>()
 		val rs = executeQuery(query)
-		while(rs.next()) {
+		while(rs.next())
+		{
 			map.put(rs.getString(1), rs.getString(2))
 		}
 		rs.close()
@@ -278,27 +412,40 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		val ps = conn.prepareStatement("INSERT OR REPLACE INTO messages " + columns)
 		val ps_insert_or_ignore = conn.prepareStatement("INSERT OR IGNORE INTO messages " + columns)
 
-		for (msg in all) {
-			if (msg is TLMessage) {
+		for (msg in all)
+		{
+			if (msg is TLMessage)
+			{
 				ps.setInt(1, msg.getId())
 				ps.setString(2, "message")
 				val peer = msg.getToId()
-				if (peer is TLPeerChat) {
+				if (peer is TLPeerChat)
+				{
 					ps.setString(3, "group")
 					ps.setInt(4, peer.getChatId())
-				} else if (peer is TLPeerUser) {
+				}
+				else if (peer is TLPeerUser)
+				{
 					var id = peer.getUserId()
-					if (id == user_manager.id) {
+					if (id == user_manager.id)
+					{
 						id = msg.getFromId()
 					}
 					ps.setString(3, "dialog")
 					ps.setInt(4, id)
-				} else if (peer is TLPeerChannel) {
-					if (source_type == MessageSource.CHANNEL) {
+				}
+				else if (peer is TLPeerChannel)
+				{
+					if (source_type == MessageSource.CHANNEL)
+					{
 						ps.setString(3, "channel")
-					} else if (source_type == MessageSource.SUPERGROUP) {
+					}
+					else if (source_type == MessageSource.SUPERGROUP)
+					{
 						ps.setString(3, "supergroup")
-					} else {
+					}
+					else
+					{
 						throw RuntimeException("Got a TLPeerChannel, but were expecting $source_type")
 					}
 					ps.setInt(4, peer.getChannelId())
@@ -306,36 +453,49 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 					throw RuntimeException("Unexpected Peer type: " + peer.javaClass)
 				}
 
-				if (peer is TLPeerChannel && msg.getFromId() == null) {
+				if (peer is TLPeerChannel && msg.getFromId() == null)
+				{
 					ps.setNull(5, Types.INTEGER)
-				} else {
+				}
+				else
+				{
 					ps.setInt(5, msg.getFromId())
 				}
 
-				if (msg.getFwdFrom() != null && msg.getFwdFrom().getFromId() != null) {
+				if (msg.getFwdFrom() != null && msg.getFwdFrom().getFromId() != null)
+				{
 					ps.setInt(6, msg.getFwdFrom().getFromId())
-				} else {
+				}
+				else
+				{
 					ps.setNull(6, Types.INTEGER)
 				}
 
 				var text = msg.getMessage()
-				if ((text == null || text.equals("")) && msg.getMedia() != null) {
+				if ((text == null || text.equals("")) && msg.getMedia() != null)
+				{
 					val media = msg.getMedia()
-					if (media is TLMessageMediaDocument) {
+					if (media is TLMessageMediaDocument)
+					{
 						text = media.getCaption()
-					} else if (media is TLMessageMediaPhoto) {
+					}
+					else if (media is TLMessageMediaPhoto)
+					{
 						text = media.getCaption()
 					}
 				}
 				ps.setString(7, text)
 				ps.setString(8, "" + msg.getDate())
 				val f = FileManagerFactory.getFileManager(msg, file_base, settings)
-				if (f == null) {
+				if (f == null)
+				{
 					ps.setNull(9, Types.BOOLEAN)
 					ps.setNull(10, Types.VARCHAR)
 					ps.setNull(11, Types.VARCHAR)
 					ps.setNull(12, Types.INTEGER)
-				} else {
+				}
+				else
+				{
 					ps.setBoolean(9, true)
 					ps.setString(10, f.name)
 					ps.setString(11, f.targetFilename)
@@ -347,30 +507,43 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				ps.setInt(14, api_layer)
 				ps.setString(15, msg.toJson())
 				ps.addBatch()
-			} else if (msg is TLMessageService) {
+			}
+			else if (msg is TLMessageService)
+			{
 				ps_insert_or_ignore.setInt(1, msg.getId())
 				ps_insert_or_ignore.setString(2, "service_message")
 				
 				val peer = msg.getToId()
-				if (peer is TLPeerChat) {
+				if (peer is TLPeerChat)
+				{
 					ps.setString(3, "group")
 					ps.setInt(4, peer.getChatId())
-				} else if (peer is TLPeerUser) {
+				}
+				else if (peer is TLPeerUser)
+				{
 					var id = peer.getUserId()
-					if (id == user_manager.id) {
+					if (id == user_manager.id)
+					{
 						id = msg.getFromId()
 					}
 					ps.setString(3, "dialog")
 					ps.setInt(4, id)
-				} else if (peer is TLPeerChannel) {
+				}
+				else if (peer is TLPeerChannel)
+				{
 					// Messages in channels don't have a sender.
-					if (msg.getFromId() == null) {
+					if (msg.getFromId() == null)
+					{
 						ps.setString(3, "channel")
-					} else {
+					}
+					else
+					{
 						ps.setString(3, "supergroup")
 					}
 					ps.setInt(4, peer.getChannelId())
-				} else {
+				}
+				else
+				{
 					throw RuntimeException("Unexpected Peer type: " + peer.javaClass)
 				}
 				
@@ -386,7 +559,9 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				ps_insert_or_ignore.setInt(14, api_layer)
 				ps_insert_or_ignore.setString(15, msg.toJson())
 				ps_insert_or_ignore.addBatch()
-			} else if (msg is TLMessageEmpty) {
+			}
+			else if (msg is TLMessageEmpty)
+			{
 				ps_insert_or_ignore.setInt(1, msg.getId())
 				ps_insert_or_ignore.setString(2, "empty_message")
 				ps_insert_or_ignore.setNull(3, Types.INTEGER)
@@ -403,7 +578,9 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				ps_insert_or_ignore.setInt(14, api_layer)
 				ps_insert_or_ignore.setNull(15, Types.VARCHAR)
 				ps_insert_or_ignore.addBatch()
-			} else {
+			}
+			else
+			{
 				throw RuntimeException("Unexpected Message type: " + msg.javaClass)
 			}
 		}
@@ -420,7 +597,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 	}
 
 	@Synchronized
-	fun saveChats(all: TLVector<TLAbsChat>) {
+	fun saveChats(all: TLVector<TLAbsChat>)
+	{
 		val ps_insert_or_replace = conn.prepareStatement(
 			"INSERT OR REPLACE INTO chats " +
 				"(id, name, type, json, api_layer) " +
@@ -432,7 +610,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				"VALUES " +
 				"(?,  ?,    ?,    ?,    ?)")
 
-		for (abs in all) {
+		for (abs in all)
+		{
 			ps_insert_or_replace.setInt(1, abs.getId())
 			ps_insert_or_ignore.setInt(1, abs.getId())
 			val json = abs.toJson()
@@ -440,27 +619,38 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 			ps_insert_or_ignore.setString(4, json)
 			ps_insert_or_replace.setInt(5, Kotlogram.API_LAYER)
 			ps_insert_or_ignore.setInt(5, Kotlogram.API_LAYER)
-			if (abs is TLChatEmpty) {
+			if (abs is TLChatEmpty)
+			{
 				ps_insert_or_ignore.setNull(2, Types.VARCHAR)
 				ps_insert_or_ignore.setString(3, "empty_chat")
 				ps_insert_or_ignore.addBatch()
-			} else if (abs is TLChatForbidden) {
+			}
+			else if (abs is TLChatForbidden)
+			{
 				ps_insert_or_replace.setString(2, abs.getTitle())
 				ps_insert_or_replace.setString(3, "chat")
 				ps_insert_or_replace.addBatch()
-			} else if (abs is TLChannelForbidden) {
+			}
+			else if (abs is TLChannelForbidden)
+			{
 				ps_insert_or_replace.setString(2, abs.getTitle())
 				ps_insert_or_replace.setString(3, "channel")
 				ps_insert_or_replace.addBatch()
-			} else if (abs is TLChat) {
+			}
+			else if (abs is TLChat)
+			{
 				ps_insert_or_replace.setString(2, abs.getTitle())
 				ps_insert_or_replace.setString(3, "chat")
 				ps_insert_or_replace.addBatch()
-			} else if (abs is TLChannel) {
+			}
+			else if (abs is TLChannel)
+			{
 				ps_insert_or_replace.setString(2, abs.getTitle())
 				ps_insert_or_replace.setString(3, "channel")
 				ps_insert_or_replace.addBatch()
-			} else {
+			}
+			else
+			{
 				throw RuntimeException("Unexpected " + abs.javaClass)
 			}
 		}
@@ -477,7 +667,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 	}
 
 	@Synchronized
-	fun saveUsers(all: TLVector<TLAbsUser>) {
+	fun saveUsers(all: TLVector<TLAbsUser>)
+	{
 		val ps_insert_or_replace = conn.prepareStatement(
 			"INSERT OR REPLACE INTO users " +
 				"(id, first_name, last_name, username, type, phone, json, api_layer) " +
@@ -488,8 +679,10 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				"(id, first_name, last_name, username, type, phone, json, api_layer) " +
 				"VALUES " +
 				"(?,  ?,          ?,         ?,        ?,    ?,     ?,    ?)")
-		for (abs in all) {
-			if (abs is TLUser) {
+		for (abs in all)
+		{
+			if (abs is TLUser)
+			{
 				val user = abs
 				ps_insert_or_replace.setInt(1, user.getId())
 				ps_insert_or_replace.setString(2, user.getFirstName())
@@ -500,7 +693,9 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				ps_insert_or_replace.setString(7, user.toJson())
 				ps_insert_or_replace.setInt(8, Kotlogram.API_LAYER)
 				ps_insert_or_replace.addBatch()
-			} else if (abs is TLUserEmpty) {
+			}
+			else if (abs is TLUserEmpty)
+			{
 				ps_insert_or_ignore.setInt(1, abs.getId())
 				ps_insert_or_ignore.setNull(2, Types.VARCHAR)
 				ps_insert_or_ignore.setNull(3, Types.VARCHAR)
@@ -510,7 +705,9 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 				ps_insert_or_ignore.setNull(7, Types.VARCHAR)
 				ps_insert_or_ignore.setInt(8, Kotlogram.API_LAYER)
 				ps_insert_or_ignore.addBatch()
-			} else {
+			}
+			else
+			{
 				throw RuntimeException("Unexpected " + abs.javaClass)
 			}
 		}
@@ -528,10 +725,12 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 	
 	fun fetchSettings() = queryStringMap("SELECT key, value FROM settings")
 	
-	fun saveSetting(key: String, value: String?) {
+	fun saveSetting(key: String, value: String?)
+	{
 		val ps = conn.prepareStatement("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
 		ps.setString(1, key)
-		if (value==null) {
+		if (value==null)
+		{
 			ps.setNull(2, Types.VARCHAR)
 		} else {
 			ps.setString(2, value)
@@ -540,31 +739,37 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		ps.close()
 	}
 	
-	fun getIdsFromQuery(query: String): LinkedList<Int> {
+	fun getIdsFromQuery(query: String): LinkedList<Int>
+	{
 		val list = LinkedList<Int>()
 		val rs = executeQuery(query)
-		while (rs.next()) {
+		while (rs.next())
+		{
 			list.add(rs.getInt(1))
 		}
 		rs.close()
 		return list
 	}
 
-	fun getMessageTypesWithCount(c: AbstractChat): HashMap<String, Int> {
+	fun getMessageTypesWithCount(c: AbstractChat): HashMap<String, Int>
+	{
 		val map = HashMap<String, Int>()
 		val rs = executeQuery("SELECT message_type, COUNT(message_id) FROM messages WHERE " + c.query + " GROUP BY message_type")
-		while (rs.next()) {
+		while (rs.next())
+		{
 			map.put("count.messages.type." + rs.getString(1), rs.getInt(2))
 		}
 		rs.close()
 		return map
 	}
 
-	fun getMessageMediaTypesWithCount(c: AbstractChat): HashMap<String, Int> {
+	fun getMessageMediaTypesWithCount(c: AbstractChat): HashMap<String, Int>
+	{
 		val map = HashMap<String, Int>()
 		var count = 0
 		val rs = executeQuery("SELECT media_type, COUNT(message_id) FROM messages WHERE " + c.query + " GROUP BY media_type")
-		while (rs.next()) {
+		while (rs.next())
+		{
 			var type = rs.getString(1) ?: "null"
 			if (type != "null") count += rs.getInt(2)
 			map.put("count.messages.media_type.${type}", rs.getInt(2))
@@ -574,7 +779,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		return map
 	}
 
-	fun getMessageAuthorsWithCount(c: AbstractChat): HashMap<String, Any> {
+	fun getMessageAuthorsWithCount(c: AbstractChat): HashMap<String, Any>
+	{
 		val map = HashMap<String, Any>()
 		val all_data = LinkedList<HashMap<String, String>>()
 		var count_others = 0
@@ -585,17 +791,24 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 			"FROM messages " +
 			"LEFT JOIN users ON users.id=messages.sender_id " +
 			"WHERE " + c.query + " GROUP BY sender_id")
-		while (rs.next()) {
+		while (rs.next())
+		{
 			val u: User
 			val data = HashMap<String, String>()
-			if (rs.getString(2) != null || rs.getString(3) != null || rs.getString(4) != null) {
+			if (rs.getString(2) != null || rs.getString(3) != null || rs.getString(4) != null)
+			{
 				u = User(rs.getInt(1), rs.getString(2), rs.getString(3))
-			} else {
+			}
+			else
+			{
 				u = User(rs.getInt(1), "Unknown", "")
 			}
-			if (u.isMe) {
+			if (u.isMe)
+			{
 				map.put("authors.count.me", rs.getInt(5))
-			} else {
+			}
+			else
+			{
 				count_others += rs.getInt(5)
 				data.put("name", u.name)
 				data.put("count", ""+rs.getInt(5))
@@ -611,20 +824,23 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 	
 	fun getMessageCountForExport(c: AbstractChat): Int = queryInt("SELECT COUNT(*) FROM messages WHERE " + c.query)
 
-	fun getMessageTimesMatrix(c: AbstractChat): Array<IntArray> {
+	fun getMessageTimesMatrix(c: AbstractChat): Array<IntArray>
+	{
 		val result = Array(7) { IntArray(24) }
 		val rs = executeQuery("SELECT STRFTIME('%w', time, 'unixepoch') as DAY, " +
 			"STRFTIME('%H', time, 'unixepoch') AS hour, " +
 			"COUNT(id) FROM messages WHERE " + c.query + " GROUP BY hour, day " +
 			"ORDER BY hour, day")
-		while (rs.next()) {
+		while (rs.next())
+		{
 			result[if (rs.getInt(1) == 0) 6 else rs.getInt(1) - 1][rs.getInt(2)] = rs.getInt(3)
 		}
 		rs.close()
 		return result
 	}
 	
-	fun getMessagesForCSVExport(start: Long, end: Long, method: (HashMap<String, Any>) -> Unit) {
+	fun getMessagesForCSVExport(start: Long, end: Long, method: (HashMap<String, Any>) -> Unit)
+	{
 		var query = "SELECT text, time*1000, users.first_name as user_first_name, users.last_name as user_last_name, " +
 			"users.username as user_username, messages.json, source_type, source_id, text " +
 			"FROM messages " +
@@ -632,7 +848,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 			"WHERE time>=${start} AND time<${end} AND messages.api_layer=${Kotlogram.API_LAYER} " +
 			"ORDER BY messages.time"
 		val rs = stmt.executeQuery(query)
-		while (rs.next()) {
+		while (rs.next())
+		{
 			val map = HashMap<String, Any>()
 			map.put("text", rs.getString(1))
 			map.put("time", rs.getTime(2))
@@ -648,9 +865,11 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		rs.close()
 	}
  
-	fun getMessagesForExport(c: AbstractChat, limit: Int=-1, offset: Int=0, time_range: LongRange? = null): LinkedList<HashMap<String, Any>> {
+	fun getMessagesForExport(c: AbstractChat, limit: Int=-1, offset: Int=0, time_range: LongRange? = null): LinkedList<HashMap<String, Any>>
+	{
 		var conditions = ""
-		if (time_range != null) {
+		if (time_range != null)
+		{
 			conditions = "AND time>=#{time_range.start} AND time<=#{time_range.endInclusive}"
 		}
 		var query = "SELECT messages.message_id as message_id, text, time*1000 as time, has_media, " +
@@ -663,7 +882,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 			c.query + " " + conditions + " " +
 			"ORDER BY messages.message_id"
 
-		if ( limit != -1 ) {
+		if ( limit != -1 )
+		{
 			query = query + " LIMIT ${limit} OFFSET ${offset}"
 		}	
 		
@@ -678,9 +898,11 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		var count = 0
 		var old_date: String? = null
 		var old_user = 0
-		while (rs.next()) {
+		while (rs.next())
+		{
 			val h = HashMap<String, Any>(columns)
-			for (i in 1..columns) {
+			for (i in 1..columns)
+			{
 				h.put(meta.getColumnName(i), rs.getObject(i))
 			}
 			// Additional values to make up for Mustache's inability to format dates
@@ -688,7 +910,8 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 			val date = format_date.format(d)
 			h.put("formatted_time", format_time.format(d))
 			h.put("formatted_date", date)
-			if (rs.getString("media_type") != null) {
+			if (rs.getString("media_type") != null)
+			{
 				h.put("media_" + rs.getString("media_type"), true)
 			}
 			h.put("from_me", rs.getInt("user_id") == user_manager.id)
@@ -705,60 +928,88 @@ class Database constructor(val file_base: String, val user_manager: UserManager)
 		return list
 	}
 	
-	fun close() {
+	fun close()
+	{
 		logger.debug("Closing database.")
-		try { stmt.close() } catch (e: Throwable) { logger.debug("Exception during stmt.close()", e) }
-		try { conn.close() } catch (e: Throwable) { logger.debug("Exception during conn.close()", e) }
+		try
+		{
+			stmt.close()
+		}
+		catch (e: Throwable)
+		{
+			logger.debug("Exception during stmt.close()", e)
+		}
+		try
+		{
+			conn.close()
+		}
+		catch (e: Throwable)
+		{
+			logger.debug("Exception during conn.close()", e)
+		}
 		logger.debug("Database closed.")
 	}
 
 
-	abstract inner class AbstractChat {
+	abstract inner class AbstractChat
+	{
 		abstract val query: String
 		abstract val type: String
 	}
 
-	inner class Dialog(var id: Int, var first_name: String?, var last_name: String?, var username: String?, var count: Int?) : AbstractChat() {
+	inner class Dialog(var id: Int, var first_name: String?, var last_name: String?, var username: String?, var count: Int?) : AbstractChat()
+	{
 		override val query = "source_type='dialog' AND source_id=" + id
 		override val type = "dialog"
 	}
 
-	inner class Chat(var id: Int, var name: String?, var count: Int?) : AbstractChat() {
+	inner class Chat(var id: Int, var name: String?, var count: Int?) : AbstractChat()
+	{
 		override val query = "source_type IN('group', 'supergroup', 'channel') AND source_id=" + id
 		override val type = "chat"
 	}
 
-	inner class User(id: Int, first_name: String?, last_name: String?) {
+	inner class User(id: Int, first_name: String?, last_name: String?)
+	{
 		var name: String
 		var isMe: Boolean = false
 
-		init {
+		init
+		{
 			isMe = id == user_manager.id
 			val s = StringBuilder()
-			if (first_name != null) s.append(first_name + " ")
-			if (last_name != null) s.append(last_name)
+			if (first_name != null)
+				s.append(first_name + " ")
+			if (last_name != null)
+				s.append(last_name)
+			
 			name = s.toString().trim()
 		}
 	}
 
-	inner class GlobalChat : AbstractChat() {
+	inner class GlobalChat : AbstractChat()
+	{
 		override val query = "1=1"
 		override val type = "GlobalChat"
 	}
 
-	companion object {
-		fun bytesToTLMessage(b: ByteArray?): TLMessage? {
-			try {
+	companion object
+	{
+		fun bytesToTLMessage(b: ByteArray?): TLMessage?
+		{
+			try
+			{
 				if (b == null) return null
 				val stream = ByteArrayInputStream(b)
 				val msg = TLMessage()
 				msg.deserializeBody(stream, TLApiContext.getInstance())
 				return msg
-			} catch (e: IOException) {
+			}
+			catch (e: IOException)
+			{
 				e.printStackTrace()
 				throw RuntimeException("Could not deserialize message.")
 			}
-
 		}
 	}
 }

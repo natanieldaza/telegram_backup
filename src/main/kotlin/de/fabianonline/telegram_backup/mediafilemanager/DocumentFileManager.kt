@@ -31,7 +31,7 @@ import de.fabianonline.telegram_backup.*
 open class DocumentFileManager(message: JsonObject, file_base: String) : AbstractMediaFileManager(message, file_base) {
 	//protected var doc: TLDocument? = null
 	override lateinit var extension: String
-
+	override lateinit var originalname : String	
 	open val isSticker: Boolean
 		get() = json.get("attributes")?.array?.any{it.obj.isA("documentAttributeSticker")} ?: false
 
@@ -45,7 +45,8 @@ open class DocumentFileManager(message: JsonObject, file_base: String) : Abstrac
 	private val json = message["media"]["document"].obj
 
 	init {
-		extension = processExtension()
+		originalname = ""
+		extension = processExtension() 
 	}
 
 	private fun processExtension(): String {
@@ -56,6 +57,7 @@ open class DocumentFileManager(message: JsonObject, file_base: String) : Abstrac
 			for (attr in json["attributes"].array) {
 				if (attr.obj["_constructor"].string.startsWith("documentAttributeFilename")) {
 					original_filename = attr.obj["fileName"].string
+					originalname = original_filename;
 				}
 			}
 		if (original_filename != null) {

@@ -38,7 +38,7 @@ class GeoFileManager(message: JsonObject, file_base: String, val settings: Setti
 			val f = File(targetPathAndFilename)
 			return if (f.isFile()) f.length().toInt() else 100000
 		}
-
+    open override val originalname: String = ""
 	override val extension: String
 		get() = "png"
 
